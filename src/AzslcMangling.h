@@ -8,6 +8,7 @@
 #pragma once
 
 #include "StdUtils.h"
+#include "GenericUtils.h"
 
 namespace AZ::ShaderCompiler
 {

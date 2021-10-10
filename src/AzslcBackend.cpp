@@ -610,6 +610,13 @@ namespace AZ::ShaderCompiler
             RootSigDesc::SrgDesc srgDesc;
             srgDesc.m_uid = srgUid;
 
+            if (srgInfo->m_indirect && options.m_indirectBindings)
+            {
+                // SRGs attached to an indirect SRG semantic do not bind resources directly into the root signature.
+                // Instead they index into the managed resource heaps
+                continue;
+            }
+
             for (const auto tId : srgInfo->m_srViews)
             {
                 if (useUniqueIndices && !srgInfo->m_unboundedArrays.empty() && srgInfo->m_unboundedArrays[0] == tId)

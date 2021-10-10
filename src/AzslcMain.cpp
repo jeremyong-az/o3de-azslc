@@ -11,6 +11,7 @@
 #include "AzslcReflection.h"
 #include "AzslcEmitter.h"
 #include "AzslcHomonymVisitor.h"
+#include "IndirectSrgCodeMutator.h"
 #include "Texture2DMSto2DCodeMutator.h"
 
 #include <cstddef>
@@ -306,6 +307,9 @@ int main(int argc, const char* argv[])
     std::string output;
     cli.add_option("-o", output, "Output file (writes to stdout if omitted).");
 
+    bool indirectBindings = false;
+    cli.add_flag("--indirect-bindings", indirectBindings, "Leverage managed descriptor heaps for binding SRGs possessing the [indirect] attribute.");
+
     bool useSpaces = false;
     cli.add_flag("--use-spaces", useSpaces, "Use a logical space index per SRG.");
 
@@ -496,7 +500,15 @@ int main(int argc, const char* argv[])
                 ir.m_metaData.m_insource = StdFs::absolute(inSource).lexically_normal().generic_string();
             }
             tree::ParseTreeWalker walker;
+            IndirectSrgCodeMutator indirectSrgCodeMutator(&ir);
             Texture2DMSto2DCodeMutator texture2DMSto2DCodeMutator(&ir);
+            CombinedCodeMutator combinedMutator;
+            if (noMS)
+            {
+                combinedMutator.Add(&texture2DMSto2DCodeMutator);
+            }
+            combinedMutator.Add(&indirectSrgCodeMutator);
+
             SemaCheckListener semanticListener{&ir};
             warningCout.m_onErrorCallback = [](string_view message) {
                 throw AzslcException{WX_WARNINGS_AS_ERRORS, "as-error", string{message}};
@@ -532,6 +544,7 @@ int main(int argc, const char* argv[])
             emitOptions.m_emitRootSig = rootSig;
             emitOptions.m_padRootConstantCB = padRootConst;
             emitOptions.m_skipAlignmentValidation = noAlignmentValidation;
+            emitOptions.m_indirectBindings = indirectBindings;
 
             if (*rootConstOpt)
             {
@@ -691,10 +704,7 @@ int main(int argc, const char* argv[])
                 if (full)
                 { // Combine the default emission and the ia, om, srg, options, bindingdep commands
                     CodeEmitter emitter{&ir, &tokens, out};
-                    if (noMS)
-                    {
-                        emitter.SetCodeMutator(&texture2DMSto2DCodeMutator);
-                    }
+                    emitter.SetCodeMutator(&combinedMutator);
                     out << "// HLSL emission by " << versionString << "\n";
                     emitter.Run(emitOptions);
 
@@ -727,10 +737,7 @@ int main(int argc, const char* argv[])
                 else
                 { // Emit the shader source code
                     CodeEmitter emitter{&ir, &tokens, out};
-                    if (noMS)
-                    {
-                        emitter.SetCodeMutator(&texture2DMSto2DCodeMutator);
-                    }
+                    emitter.SetCodeMutator(&combinedMutator);
                     out << "// HLSL emission by " << versionString << "\n";
                     emitter.Run(emitOptions);
                 }

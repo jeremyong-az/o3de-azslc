@@ -7,6 +7,8 @@
  */
 #pragma once
 
+#include <vector>
+
 #include "AzslcUtils.h"
 
 namespace AZ::ShaderCompiler
@@ -40,4 +42,24 @@ namespace AZ::ShaderCompiler
         virtual const CodeMutation* GetMutation(ssize_t tokenIndex) const = 0;
     };
 
+    //! Helper mutator class that layers the effects of multiple mutators behind a single object.
+    //! Each mutator added is processed in order and given an opportunity to produce a mutation. The
+    //! first mutator that produces a non-nullptr mutation short-circuits the loop.
+    class CombinedCodeMutator : public ICodeEmissionMutator
+    {
+    public:
+        ~CombinedCodeMutator() override = default;
+
+        //! Add a mutator to the chain that will process before other mutators added afterwards
+        void Add(ICodeEmissionMutator* mutator)
+        {
+            m_mutators.push_back(mutator);
+        }
+
+        //! ICodeEmissionMutator override
+        const CodeMutation* GetMutation(ssize_t tokenIndex) const override;
+
+    private:
+        std::vector<ICodeEmissionMutator*> m_mutators;
+    };
 } // namespace AZ::ShaderCompiler

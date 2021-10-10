@@ -104,6 +104,9 @@ namespace AZ::ShaderCompiler
             EmitAttribute(attr);
         }
 
+        // Emit managed resource heaps if indirect bindings are enabled
+        EmitManagedResourceHeaps(options, rootSig);
+
         if (m_ir->m_sema.m_subpassInputSeen)
         {
             m_out << StubSubpassInputTypes << "\n";
@@ -959,6 +962,58 @@ namespace AZ::ShaderCompiler
         }
     }
 
+    void CodeEmitter::EmitManagedResourceHeaps(const Options& options, const RootSigDesc& rootSig)
+    {
+        if (!options.m_indirectBindings)
+        {
+            return;
+        }
+
+        // Emit unbounded arrays for each resource type
+        m_out
+            << "ByteAddressBuffer ManagedHeap_ByteAddressBuffer[] : register(b0, space32);\n"
+            << "Texture2D ManagedHeap_Texture2D[] : register(t0, space33);\n"
+            << "Texture3D ManagedHeap_Texture3D[] : register(t0, space34);\n"
+            << "TextureCube ManagedHeap_TextureCube[] : register(t0, space35);\n"
+            << "SamplerState ManagedHeap_SamplerState[] : register(s0, space36);\n";
+    }
+
+    void CodeEmitter::EmitSRGIndirectionGetters(const SRGInfo& srgInfo, const Options& options, const RootSigDesc& rootSig)
+    {
+        if (!options.m_indirectBindings)
+        {
+            return;
+        }
+
+        // Each resource in the indirection buffer corresponds to a single uint32, packed one after another
+        // in order of occurrence. The only exception is the data which corresponds to two constants
+        // (byte address buffer index and offset).
+
+        AstSRGDeclNode indirectionNode{ nullptr, 0 };
+
+        SRGInfo indirectPacket;
+        indirectPacket.m_semantic = srgInfo.m_semantic;
+
+        for (const auto& t : srgInfo.m_srViews)
+        {
+            IdentifierUID indirectUID;
+            indirectUID.m_name = t.GetName();
+            indirectUID.m_name.append("Indirect");
+            indirectPacket.m_implicitStruct.PushMember(indirectUID, Kind::Variable);
+        }
+
+        for (const auto& s : srgInfo.m_samplers)
+        {
+            IdentifierUID indirectUID;
+            indirectUID.m_name = s.GetName();
+            indirectUID.m_name.append("Indirect");
+            indirectPacket.m_implicitStruct.PushMember(indirectUID, Kind::Variable);
+        }
+
+        IdentifierUID indirectPacketUID{ {"/IndirectPacket"} };
+        EmitSRGCBUnified(indirectPacket, indirectPacketUID, options, rootSig);
+    }
+
     void CodeEmitter::EmitSRGCBUnified(const SRGInfo& srgInfo, IdentifierUID srgId, const Options& options, const RootSigDesc& rootSig)
     {
         auto bindSet = BindingPair::Set::Merged;
@@ -967,16 +1022,18 @@ namespace AZ::ShaderCompiler
         {
             if (srgInfo.m_implicitStruct.GetMemberFields().size() > 0)
             {
-                const auto& bindInfo = rootSig.Get(srgId);
-
                 const QualifiedName implicitStruct = MakeSrgConstantsStructName(srgId);
                 const QualifiedName implicitCB = MakeSrgConstantsCBName(srgId);
                 EmitStruct(srgInfo.m_implicitStruct, implicitStruct, options);
 
-                const auto spaceX = (options.m_useLogicalSpaces) ? ", space" + std::to_string(bindInfo.m_registerBinding.m_pair[bindSet].m_logicalSpace) : "";
-                const auto implicitStructForEmission = GetTranslatedName(implicitStruct, UsageContext::ReferenceSite);
-                const auto implicitCBForEmission = GetTranslatedName(implicitCB, UsageContext::DeclarationSite);
-                m_out << "ConstantBuffer<" << implicitStructForEmission << "> " << implicitCBForEmission << " : register(b" << bindInfo.m_registerBinding.m_pair[bindSet].m_registerIndex << spaceX << ");\n\n";
+                if (!(srgInfo.m_indirect && options.m_indirectBindings))
+                {
+                    const auto& bindInfo = rootSig.Get(srgId);
+                    const auto spaceX = (options.m_useLogicalSpaces) ? ", space" + std::to_string(bindInfo.m_registerBinding.m_pair[bindSet].m_logicalSpace) : "";
+                    const auto implicitStructForEmission = GetTranslatedName(implicitStruct, UsageContext::ReferenceSite);
+                    const auto implicitCBForEmission = GetTranslatedName(implicitCB, UsageContext::DeclarationSite);
+                    m_out << "ConstantBuffer<" << implicitStructForEmission << "> " << implicitCBForEmission << " : register(b" << bindInfo.m_registerBinding.m_pair[bindSet].m_registerIndex << spaceX << ");\n\n";
+                }
             }
 
             for (auto cId : srgInfo.m_CBs)
@@ -992,8 +1049,11 @@ namespace AZ::ShaderCompiler
             return;
         }
 
-        const auto& bindInfo = rootSig.Get(srgId);
-        m_out << "ConstantBuffer " << srgInfo.m_declNode->Name->getText() << "_CBContainer : register(b" << bindInfo.m_registerBinding.m_pair[bindSet].m_registerIndex << ")\n{\n";
+        if (!(srgInfo.m_indirect && options.m_indirectBindings))
+        {
+            const auto& bindInfo = rootSig.Get(srgId);
+            m_out << "ConstantBuffer " << srgInfo.m_declNode->Name->getText() << "_CBContainer : register(b" << bindInfo.m_registerBinding.m_pair[bindSet].m_registerIndex << ")\n{\n";
+        }
 
         for (const auto& cId : srgInfo.m_CBs)
         {
@@ -1208,14 +1268,23 @@ namespace AZ::ShaderCompiler
         EmitAllAttachedAttributes(srgId);
         m_out << " ShaderResourceGroup " << srgInfo.m_declNode->Name->getText() << "*/\n";
 
-        for (const auto& t : srgInfo.m_srViews)
+        if (srgInfo.m_indirect && options.m_indirectBindings)
         {
-            EmitSRGDataView(t, options, rootSig);
+            // Indirect bindings don't emit resource binding code directly and exposes getters for each
+            // SRV/sampler and a single getter for the constant data
+            EmitSRGIndirectionGetters(srgInfo, options, rootSig);
         }
-
-        for (const auto& s : srgInfo.m_samplers)
+        else
         {
-            EmitSRGSampler(s, options, rootSig);
+            for (const auto& t : srgInfo.m_srViews)
+            {
+                EmitSRGDataView(t, options, rootSig);
+            }
+
+            for (const auto& s : srgInfo.m_samplers)
+            {
+                EmitSRGSampler(s, options, rootSig);
+            }
         }
 
         EmitSRGCBUnified(srgInfo, srgId, options, rootSig);

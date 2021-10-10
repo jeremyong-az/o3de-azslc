@@ -31,6 +31,8 @@ namespace AZ::ShaderCompiler
             return false;
         }
 
+        // TODO: ensure associated semantic doesn't have indirection
+
         srgInfo.m_unboundedArrays.push_back(varUid);
 
         if (!CheckResourceCanBeAddedToSrgWhenUniqueIndicesIsEnabled(srgUid, varUid, errorMessage))

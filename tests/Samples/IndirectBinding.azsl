@@ -1,0 +1,15 @@
+ShaderResourceGroupSemantic ExampleBinding 
+{
+    FrequencyId = 0; 
+};
+
+[[indirect]]
+ShaderResourceGroup ExampleSRG : ExampleBinding
+{
+    float3 m_baseColor;
+    float m_baseColorFactor;
+
+    Texture2D m_baseColorMap;
+    Texture2D m_roughnessMap;
+    Texture2D m_normalMap;
+};
