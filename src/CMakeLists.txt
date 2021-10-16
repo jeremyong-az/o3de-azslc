@@ -13,6 +13,12 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cli11)
 
+# Antlr4
+set(CMAKE_BUILD_TYPE_SAVED ${CMAKE_BUILD_TYPE})
+set(CMAKE_BUILD_TYPE "Release")
+add_subdirectory(external/antlr4/runtime/Cpp)
+set(CMAKE_BUILD_TYPE ${CMAKE_BUILD_TYPE_SAVED})
+
 if (MSVC)
   add_compile_options("/std:c++17")
   add_compile_options("/permissive-")
@@ -70,10 +76,6 @@ file(GLOB azslc_GeneratedSrc
   "${PROJECT_SOURCE_DIR}/generated/*.cpp"
 )
 
-if (MSVC)
-  include_external_msproject(antlr4_static ${CMAKE_BINARY_DIR}/external/antlr4/runtime/Cpp/runtime/antlr4_static.vcxproj)
-endif()
-
 set( ANTLR4CPP_INCLUDE_DIRS
   ${PROJECT_SOURCE_DIR}/external/antlr4/runtime/Cpp/runtime/src
   ${PROJECT_SOURCE_DIR}/external/antlr4/runtime/Cpp/runtime/src/dfa
@@ -98,16 +100,6 @@ include_directories(
     ${TINY_OPTIONAL_INCLUDE_DIRS}
 )
 
-if (MSVC)
-  link_directories(
-    ${CMAKE_BINARY_DIR}/external/antlr4/runtime/Cpp/dist/${CMAKE_BUILD_TYPE}
-  )
-elseif (UNIX)
-  link_directories(
-    ${CMAKE_BINARY_DIR}/external/antlr4/runtime/Cpp/dist/
-  )
-endif()
-
 add_executable(azslc ${azslc_LocalSRC} ${azslc_PlatformSRC} ${azslc_GeneratedSrc} ${azslc_ExternalSRC})
 
 source_group("azslc" FILES ${azslc_LocalSRC})
@@ -115,19 +107,13 @@ source_group("generated" FILES ${azslc_GeneratedSrc})
 source_group("external" FILES ${azslc_ExternalSRC})
 source_group("platforms" FILES ${azslc_PlatformSRC})
 
-if (MSVC)
-  target_link_libraries(azslc PRIVATE antlr4-runtime-static)
-elseif (UNIX AND NOT APPLE)
-  target_link_libraries(azslc PRIVATE libantlr4-runtime.a stdc++fs)
-elseif (UNIX)
-  target_link_libraries(azslc PRIVATE libantlr4-runtime.a)
+if (UNIX AND NOT APPLE)
+  target_link_libraries(azslc PRIVATE stdc++fs)
 endif()
 
-target_link_libraries(azslc PRIVATE CLI11::CLI11)
+target_link_libraries(azslc PRIVATE CLI11::CLI11 antlr4_static)
 
 if (MSVC)
-  add_dependencies(azslc antlr4_static)
-
   add_custom_command(TARGET azslc POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E make_directory "${PROJECT_SOURCE_DIR}/../bin/${buildPlatform}/$(Configuration)"
       COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_BINARY_DIR}/$(Configuration)/azslc.exe" "${PROJECT_SOURCE_DIR}/../bin/${buildPlatform}/$(Configuration)"

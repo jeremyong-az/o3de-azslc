@@ -23,22 +23,6 @@ if not exist "%build_path%" mkdir "%build_path%"
 cd "%build_path%" || goto :error
 
 REM ----------------------------------
-REM Generate ANTLR runtime project
-if not exist external mkdir external
-cd external
-if not exist antlr4 mkdir antlr4
-cd antlr4
-if not exist runtime mkdir runtime
-cd runtime
-if not exist Cpp mkdir Cpp
-cd Cpp
-
-%cmake_exe% -G %generator% "%src_path%\external\antlr4\runtime\Cpp\" || goto :error
-
-python -c "import sys; sys.stdout.write( open(sys.argv[1], 'r', encoding='utf-8_sig').read().replace('</RuntimeLibrary>', 'DLL</RuntimeLibrary>'))" runtime\antlr4_static.vcxproj > runtime\antlr4_static2.vcxproj || goto :error
-copy /Y "runtime\antlr4_static2.vcxproj" "runtime\antlr4_static.vcxproj"
-
-REM ----------------------------------
 REM Generate AZSLc project
 cd "%build_path%"
 
